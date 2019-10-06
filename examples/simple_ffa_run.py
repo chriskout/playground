@@ -17,6 +17,7 @@ def main():
         agents.RandomAgent(),
         agents.SimpleAgent(),
         agents.RandomAgent(),
+        agents.MyAgent();
         # agents.DockerAgent("pommerman/simple-agent", port=12345),
     ]
     # Make the "Free-For-All" environment using the agent list
