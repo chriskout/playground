@@ -13,7 +13,7 @@ from .. import utility
 
 
 class MyAgent(BaseAgent):
-    """This is my agent base on ..."""
+    """This is our agent using a BDI approach"""
 
     def __init__(self, *args, **kwargs):
         super(MyAgent, self).__init__(*args, **kwargs)
@@ -22,7 +22,8 @@ class MyAgent(BaseAgent):
         # don't keep visiting the same places.
         self._recently_visited_positions = []
         self._recently_visited_length = 6
-        # Keep track of the previous direction to help with the enemy standoffs.
+        # Keep track of the previous direction to help with the enemy
+        # standoffs.
         self._prev_direction = None
 
     def act(self, obs, action_space):
@@ -41,6 +42,7 @@ class MyAgent(BaseAgent):
         board = np.array(obs['board'])
         bombs = convert_bombs(np.array(obs['bomb_blast_strength']))
         enemies = [constants.Item(e) for e in obs['enemies']]
+        alive = [constants.Item(e) for e in obs['alive']]
         ammo = int(obs['ammo'])
         blast_strength = int(obs['blast_strength'])
         items, dist, prev = self._djikstra(
@@ -59,17 +61,37 @@ class MyAgent(BaseAgent):
                 ammo, blast_strength, items, dist, my_position):
             return constants.Action.Bomb.value
 
-        # Move towards an enemy if there is one in exactly three reachable spaces.
+        # Move towards an enemy if there is one in exactly three reachable
+        # spaces.
         direction = self._near_enemy(my_position, items, dist, prev, enemies, 3)
         if direction is not None and (self._prev_direction != direction or
                                       random.random() < .5):
             self._prev_direction = direction
             return direction.value
 
+        # OUR ADDITION: If alive <= 2, move towards enemy within 10 spaces
+        if len(alive) == 2:
+            direction = self._near_enemy(my_position, items, dist, prev, enemies, 10)
+            if direction is not None and (self._prev_direction != direction or
+                                        random.random() < .5):
+                self._prev_direction = direction
+                return direction.value
+
         # Move towards a good item if there is one within two reachable spaces.
-        direction = self._near_good_powerup(my_position, items, dist, prev, 2)
+        # OUR ADDITION: Made radius 4 instead of 2
+        direction = self._near_good_powerup(my_position, items, dist, prev, 4)
         if direction is not None:
             return direction.value
+
+        # OUR ADDITION: If alive > 2, move towards wooden wall within 6 spaces if
+        # reachable
+        if len(alive) < 2:
+            direction = self._near_wood(my_position, items, dist, prev, 2)
+            if direction is not None:
+                directions = self._filter_unsafe_directions(board, my_position,
+                                                            [direction], bombs)
+                if directions:
+                    return directions[0].value
 
         # Maybe lay a bomb if we are within a space of a wooden wall.
         if self._near_wood(my_position, items, dist, prev, 1):
@@ -78,7 +100,13 @@ class MyAgent(BaseAgent):
             else:
                 return constants.Action.Stop.value
 
-        # Move towards a wooden wall if there is one within two reachable spaces and you have a bomb.
+        # OUR ADDITION: If within 10 blocks of enemy and intersection, lay bomb
+        if self._is_near_enemy(items, dist, 10, enemies) and self._at_intersection(board, my_position, enemies) and self._maybe_bomb(
+                ammo, blast_strength, items, dist, my_position):
+            return constants.Action.Bomb.value
+
+        # Move towards a wooden wall if there is one within two reachable
+        # spaces and you have a bomb.
         direction = self._near_wood(my_position, items, dist, prev, 2)
         if direction is not None:
             directions = self._filter_unsafe_directions(board, my_position,
@@ -102,7 +130,8 @@ class MyAgent(BaseAgent):
         if not len(directions):
             directions = [constants.Action.Stop]
 
-        # Add this position to the recently visited uninteresting positions so we don't return immediately.
+        # Add this position to the recently visited uninteresting positions so
+        # we don't return immediately.
         self._recently_visited_positions.append(my_position)
         self._recently_visited_positions = self._recently_visited_positions[
             -self._recently_visited_length:]
@@ -323,6 +352,14 @@ class MyAgent(BaseAgent):
         return False
 
     @staticmethod
+    def _is_near_enemy(items, dist, length, enemies):
+        for enemy in enemies:
+            for position in items.get(enemy, []):
+                if dist[position] >= length:
+                    return True
+        return False
+
+    @staticmethod
     def _has_bomb(obs):
         return obs['ammo'] >= 1
 
@@ -414,6 +451,22 @@ class MyAgent(BaseAgent):
                         board, position, enemies):
                 ret.append(direction)
         return ret
+
+    @staticmethod
+    def _at_intersection(board, my_position, enemies):
+        """Check if we are at 4-way intersection of open spaces"""
+        directions = [
+            constants.Action.Left, constants.Action.Right, constants.Action.Up,
+            constants.Action.Down
+        ]
+        ret = []
+        for direction in directions:
+            position = utility.get_next_position(my_position, direction)
+            if utility.position_on_board(
+                    board, position) and utility.position_is_passable(
+                        board, position, enemies):
+                ret.append(direction)
+        return len(ret) == 4
 
     @staticmethod
     def _filter_unsafe_directions(board, my_position, directions, bombs):

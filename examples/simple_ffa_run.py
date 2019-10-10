@@ -5,7 +5,6 @@ from pommerman import agents
 
 def main():
     '''Simple function to bootstrap a game.
-       
        Use this as an example to set up your training env.
     '''
     # Print all possible environments in the Pommerman registry
@@ -16,8 +15,8 @@ def main():
         agents.SimpleAgent(),
         agents.RandomAgent(),
         agents.SimpleAgent(),
-        agents.RandomAgent(),
-        agents.MyAgent();
+        # agents.RandomAgent(),
+        agents.MyAgent()
         # agents.DockerAgent("pommerman/simple-agent", port=12345),
     ]
     # Make the "Free-For-All" environment using the agent list
@@ -32,6 +31,9 @@ def main():
             actions = env.act(state)
             state, reward, done, info = env.step(actions)
         print('Episode {} finished'.format(i_episode))
+
+        alive = [agent for agent in env._agents if agent.is_alive]
+        print(alive)
     env.close()
 
 
