@@ -38,6 +38,7 @@ class MyAgent(BaseAgent):
                 })
             return ret
 
+        # BELIEFS:
         my_position = tuple(obs['position'])
         board = np.array(obs['board'])
         bombs = convert_bombs(np.array(obs['bomb_blast_strength']))
@@ -48,7 +49,7 @@ class MyAgent(BaseAgent):
         items, dist, prev = self._djikstra(
             board, my_position, bombs, enemies, depth=10)
 
-        # Move if we are in an unsafe place.
+        # DESIRE 1: Move if we are in an unsafe place.
         unsafe_directions = self._directions_in_range_of_bomb(
             board, my_position, bombs, dist)
         if unsafe_directions:
@@ -56,20 +57,21 @@ class MyAgent(BaseAgent):
                 board, my_position, unsafe_directions, bombs, enemies)
             return random.choice(directions).value
 
-        # Lay pomme if we are adjacent to an enemy.
+        # DESIRE 2: Lay pomme if we are adjacent to an enemy.
         if self._is_adjacent_enemy(items, dist, enemies) and self._maybe_bomb(
                 ammo, blast_strength, items, dist, my_position):
             return constants.Action.Bomb.value
 
-        # Move towards an enemy if there is one in exactly three reachable
-        # spaces.
+        # DESIRE 3: Move towards an enemy if there is one in exactly three
+        # reachable spaces.
         direction = self._near_enemy(my_position, items, dist, prev, enemies, 3)
         if direction is not None and (self._prev_direction != direction or
                                       random.random() < .5):
             self._prev_direction = direction
             return direction.value
 
-        # OUR ADDITION: If alive <= 2, move towards enemy within 10 spaces
+        # DESIRE 4: OUR ADDITION: If more than 2 agents are still alive, move
+        # towards enemy within 10 spaces
         if len(alive) == 2:
             direction = self._near_enemy(my_position, items, dist, prev, enemies, 10)
             if direction is not None and (self._prev_direction != direction or
@@ -77,13 +79,13 @@ class MyAgent(BaseAgent):
                 self._prev_direction = direction
                 return direction.value
 
-        # Move towards a good item if there is one within two reachable spaces.
+        # DESIRE 5: Move towards a good item if there is one within two reachable spaces.
         # OUR ADDITION: Made radius 4 instead of 2
         direction = self._near_good_powerup(my_position, items, dist, prev, 4)
         if direction is not None:
             return direction.value
 
-        # OUR ADDITION: If alive > 2, move towards wooden wall within 6 spaces if
+        # DESIRE 6: OUR ADDITION: If alive > 2, move towards wooden wall within 6 spaces if
         # reachable
         if len(alive) < 2:
             direction = self._near_wood(my_position, items, dist, prev, 2)
@@ -93,20 +95,21 @@ class MyAgent(BaseAgent):
                 if directions:
                     return directions[0].value
 
-        # Maybe lay a bomb if we are within a space of a wooden wall.
+        # DESIRE 7: Maybe lay a bomb if we are within a space of a wooden wall.
         if self._near_wood(my_position, items, dist, prev, 1):
             if self._maybe_bomb(ammo, blast_strength, items, dist, my_position):
                 return constants.Action.Bomb.value
             else:
                 return constants.Action.Stop.value
 
-        # OUR ADDITION: If within 10 blocks of enemy and intersection, lay bomb
+        # DESIRE 8: OUR ADDITION: If within 10 blocks of enemy and
+        # intersection, lay bomb
         if self._is_near_enemy(items, dist, 10, enemies) and self._at_intersection(board, my_position, enemies) and self._maybe_bomb(
                 ammo, blast_strength, items, dist, my_position):
             return constants.Action.Bomb.value
 
-        # Move towards a wooden wall if there is one within two reachable
-        # spaces and you have a bomb.
+        # DESIRE 9: Move towards a wooden wall if there is one within two
+        # reachable spaces and you have a bomb.
         direction = self._near_wood(my_position, items, dist, prev, 2)
         if direction is not None:
             directions = self._filter_unsafe_directions(board, my_position,
@@ -114,7 +117,8 @@ class MyAgent(BaseAgent):
             if directions:
                 return directions[0].value
 
-        # Choose a random but valid direction.
+        # DESIRE 10: Else choose a random but valid direction. Favor new
+        # directions
         directions = [
             constants.Action.Stop, constants.Action.Left,
             constants.Action.Right, constants.Action.Up, constants.Action.Down
@@ -130,8 +134,8 @@ class MyAgent(BaseAgent):
         if not len(directions):
             directions = [constants.Action.Stop]
 
-        # Add this position to the recently visited uninteresting positions so
-        # we don't return immediately.
+        # EXTENSION OF DESIRE 10: Add this position to the recently visited
+        # uninteresting positions so we don't return immediately.
         self._recently_visited_positions.append(my_position)
         self._recently_visited_positions = self._recently_visited_positions[
             -self._recently_visited_length:]
