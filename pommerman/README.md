@@ -1,11 +1,13 @@
 # Our Pommerman Agent
+**Authors:** Connor Onweller and Christopher Outhwaite
 
 We are using a BDI approach to this problem.
 
 ## Beliefs:
 
 We get out agents beliefs from the state of the world passed to our agent. Most important beliefs in through the obs array.
-The following defined in `pommerman/agent/my_agent.py`
+The following defined in `pommerman/agent/my_agent.py`:
+
 ```python
 my_position = tuple(obs['position'])
 board = np.array(obs['board'])
