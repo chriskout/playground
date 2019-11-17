@@ -12,11 +12,22 @@ from .. import constants
 from .. import utility
 
 
-class MyAgent(BaseAgent):
+MESSAGES = {
+    'get-player-0': [1, 0],
+    'get-player-1': [1, 1],
+    'get-player-2': [1, 2],
+    'get-player-3': [1, 3],
+    # 'stay-close': [2, 0],
+    # 'stay-away': [2, 1],
+    'stay-golden-ponyboy': [2, 2],
+    # 'mine-powerup': [3, 0],
+}
+
+class MyAgentRadio(BaseAgent):
     """This is our agent using a BDI approach"""
 
     def __init__(self, *args, **kwargs):
-        super(MyAgent, self).__init__(*args, **kwargs)
+        super(MyAgentRadio, self).__init__(*args, **kwargs)
 
         # Keep track of recently visited uninteresting positions so that we
         # don't keep visiting the same places.
@@ -25,6 +36,33 @@ class MyAgent(BaseAgent):
         # Keep track of the previous direction to help with the enemy
         # standoffs.
         self._prev_direction = None
+
+    def _interpret_message(self, obs, enemies):
+        """Find out which enemies to target"""
+        message = obs['message']
+        if message[0] == 1:     # 1 signifies attacking an agent
+            enemy_id = message[1]
+            target = list(filter(lambda e: e.value == enemy_id , enemies))[0]
+            return target
+
+
+    def _create_message(self, my_position, enemies, dist, items):
+        """Find an enemy within 8 spaces tell other player to team up on it"""
+        nearest = self._nearest_enemy(items, dist, 8, enemies)
+        if nearest:
+            return (1, nearest.value)
+        return (0, 0)
+
+    def _nearest_enemy(self, items, dist, length, enemies):
+        """
+        Returns false if no enemies are within length away, else returns
+        first enemy found within lenght
+        """
+        for enemy in enemies:
+            for position in items.get(enemy, []):
+                if dist[position] >= length:
+                    return enemy
+
 
     def act(self, obs, action_space):
         def convert_bombs(bomb_map):
@@ -48,6 +86,14 @@ class MyAgent(BaseAgent):
         blast_strength = int(obs['blast_strength'])
         items, dist, prev = self._djikstra(
             board, my_position, bombs, enemies, depth=10)
+        # print(list(map(lambda e: e.value, enemies)))
+        # self.interpret_message(obs)
+
+        # Messaging rates apply:
+        target = self._interpret_message(obs, enemies)
+        message = self._create_message(my_position, enemies, dist, items)
+        print(target)
+
 
         # DESIRE 1: Move if we are in an unsafe place.
         unsafe_directions = self._directions_in_range_of_bomb(
@@ -55,39 +101,47 @@ class MyAgent(BaseAgent):
         if unsafe_directions:
             directions = self._find_safe_directions(
                 board, my_position, unsafe_directions, bombs, enemies)
-            return random.choice(directions).value
+            return random.choice(directions).value, message[0], message[1]
 
         # DESIRE 2: Lay pomme if we are adjacent to an enemy.
         if self._is_adjacent_enemy(items, dist, enemies) and self._maybe_bomb(
                 ammo, blast_strength, items, dist, my_position):
-            return constants.Action.Bomb.value
+            return constants.Action.Bomb.value, message[0], message[1]
 
-        # DESIRE 3: Move towards an enemy if there is one in exactly three
+        # DESIRE 3: Act upon message (go after target if we've been given one,
+        # and it's within 15 spaces)
+        if target:
+            direction = self._near_enemy(my_position, items, dist, prev, [target], 15)
+            if direction is not None and (self._prev_direction != direction or
+                                          random.random() < .5):
+                self._prev_direction = direction
+                return direction.value, message[0], message[1]
+
+        # DESIRE 4: Move towards an enemy if there is one in exactly three
         # reachable spaces.
         direction = self._near_enemy(my_position, items, dist, prev, enemies, 3)
         if direction is not None and (self._prev_direction != direction or
                                       random.random() < .5):
             self._prev_direction = direction
-            return direction.value
+            return direction.value, message[0], message[1]
 
-        # DESIRE 4: OUR ADDITION: If more than 2 agents are still alive, move
+        # DESIRE 5: OUR ADDITION: If more than 2 agents are still alive, move
         # towards enemy within 10 spaces
         if len(alive) == 2:
             direction = self._near_enemy(my_position, items, dist, prev, enemies, 10)
             if direction is not None and (self._prev_direction != direction or
                                         random.random() < .5):
                 self._prev_direction = direction
-                return direction.value
+                return direction.value, message[0], message[1]
 
-        # DESIRE 5: Move towards a good item if there is one within two
+        # DESIRE 6: Move towards a good item if there is one within two
         # reachable spaces.
         # OUR ADDITION: Made radius 4 instead of 2
         direction = self._near_good_powerup(my_position, items, dist, prev, 4)
         if direction is not None:
-            return direction.value
+            return direction.value, message[0], message[1]
 
-        # DESIRE 6: OUR ADDITION: If alive > 2, move towards wooden wall within
-        # 6 spaces if
+        # DESIRE 7: OUR ADDITION: If alive > 2, move towards wooden wall within 6 spaces if
         # reachable
         if len(alive) < 2:
             direction = self._near_wood(my_position, items, dist, prev, 2)
@@ -95,20 +149,14 @@ class MyAgent(BaseAgent):
                 directions = self._filter_unsafe_directions(board, my_position,
                                                             [direction], bombs)
                 if directions:
-                    return directions[0].value
+                    return directions[0].value, message[0], message[1]
 
-        # DESIRE 7: Maybe lay a bomb if we are within a space of a wooden wall.
+        # DESIRE 8: Maybe lay a bomb if we are within a space of a wooden wall.
         if self._near_wood(my_position, items, dist, prev, 1):
             if self._maybe_bomb(ammo, blast_strength, items, dist, my_position):
-                return constants.Action.Bomb.value
+                return constants.Action.Bomb.value, message[0], message[1]
             else:
-                return constants.Action.Stop.value
-
-        # DESIRE 8: OUR ADDITION: If within 10 blocks of enemy and
-        # intersection, lay bomb
-        if self._is_near_enemy(items, dist, 10, enemies) and self._at_intersection(board, my_position, enemies) and self._maybe_bomb(
-                ammo, blast_strength, items, dist, my_position):
-            return constants.Action.Bomb.value
+                return constants.Action.Stop.value, message[0], message[1]
 
         # DESIRE 9: Move towards a wooden wall if there is one within two
         # reachable spaces and you have a bomb.
@@ -117,7 +165,7 @@ class MyAgent(BaseAgent):
             directions = self._filter_unsafe_directions(board, my_position,
                                                         [direction], bombs)
             if directions:
-                return directions[0].value
+                return directions[0].value, message[0], message[1]
 
         # DESIRE 10: Else choose a random but valid direction. Favor new
         # directions
@@ -142,7 +190,7 @@ class MyAgent(BaseAgent):
         self._recently_visited_positions = self._recently_visited_positions[
             -self._recently_visited_length:]
 
-        return random.choice(directions).value
+        return random.choice(directions).value, message[0], message[1]
 
     @staticmethod
     def _djikstra(board, my_position, bombs, enemies, depth=None, exclude=None):

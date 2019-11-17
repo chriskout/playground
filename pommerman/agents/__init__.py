@@ -8,3 +8,4 @@ from .random_agent import RandomAgent
 from .simple_agent import SimpleAgent
 from .tensorforce_agent import TensorForceAgent
 from .my_agent import MyAgent
+from .my_agent_radio import MyAgentRadio
